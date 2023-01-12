@@ -107,6 +107,15 @@ where
         Ok(self.is_connected())
     }
 
+    pub async fn get_switch(&self, ain: &str) -> Result<Device, Box<dyn std::error::Error>> {
+        let session_info = self.session_info.as_ref().unwrap();
+
+        Ok(self
+            .switch_operator
+            .get_switch(&self.client, &self.url, &session_info.sid, ain)
+            .await?)
+    }
+
     pub async fn get_switches(&self) -> Result<Vec<Device>, Box<dyn std::error::Error>> {
         let session_info = self.session_info.as_ref().unwrap();
 
@@ -150,6 +159,7 @@ mod tests {
     use async_trait::async_trait;
     use std::error::Error;
 
+    use crate::command::Command;
     use crate::connection::{User, Users};
 
     #[test]
@@ -205,6 +215,39 @@ mod tests {
 
         // Assert
         assert_eq!(false, fritzbox.is_connected());
+    }
+
+    #[tokio::test]
+    async fn fritzbox_get_switch_should_return_device() {
+        // Arrange
+        let url = Url::parse("http://localhost").expect("No valid URL.");
+        let session_info = SessionInfo {
+            sid: "1".repeat(16),
+            challenge: String::new(),
+            users: Users {
+                users: Vec::<User>::new(),
+            },
+        };
+        let switches = vec![Device {
+            ain: "000001".to_string(),
+            name: "test1".to_string(),
+        }];
+        let login = MockFritzboxLogin::with_session_info(&Some(session_info));
+        let switch_operator = MockFritzboxSwitchOperator::with_switches(switches);
+        let mut fritzbox =
+            Fritzbox::<MockFritzboxLogin, MockFritzboxSwitchOperator>::with_switchbox_operator(
+                url,
+                login,
+                switch_operator,
+            );
+
+        let _ = fritzbox.update_session_info().await;
+
+        // Act
+        let result = fritzbox.get_switch("000001").await.unwrap();
+
+        // Assert
+        assert_eq!("000001", result.ain);
     }
 
     #[tokio::test]
@@ -284,6 +327,10 @@ mod tests {
         }
     }
 
+    impl Command for MockFritzboxLogin {
+        const COMMAND_PATH: &'static str = "";
+    }
+
     #[async_trait]
     impl Login for MockFritzboxLogin {
         async fn get_session_info(
@@ -324,8 +371,22 @@ mod tests {
         }
     }
 
+    impl Command for MockFritzboxSwitchOperator {
+        const COMMAND_PATH: &'static str = "";
+    }
+
     #[async_trait]
     impl SwitchOperator for MockFritzboxSwitchOperator {
+        async fn get_switch(
+            &self,
+            _client: &reqwest::Client,
+            _url: &Url,
+            _sid: &str,
+            _ain: &str,
+        ) -> Result<Device, Box<dyn Error>> {
+            Ok(self.switches[0].clone())
+        }
+
         async fn get_switches(
             &self,
             _client: &reqwest::Client,
